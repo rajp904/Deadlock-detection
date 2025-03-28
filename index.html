@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Deadlock Detection</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vis.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #e0eafc, #cfdef3);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        h1 {
+            color: #1e3a8a;
+            text-align: center;
+            font-weight: 700;
+            animation: fadeInDown 1s ease-in-out;
+        }
+        .input-section, .status-section, .process-table {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .input-section:hover, .status-section:hover, .process-table:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.15);
+        }
+        .graph-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        .graph-section {
+            flex: 1;
+            min-width: 300px;
+            background: white;
+            padding: 1rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+        .graph-section:hover {
+            transform: scale(1.02);
+        }
+        .graph {
+            height: 400px;
+            width: 100%;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+        }
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .input-section, .status-section, .graph-section, .process-table {
+            animation: slideIn 0.5s ease-in-out;
+        }
+        button:hover:not(:disabled) {
+            transform: scale(1.05);
+            transition: transform 0.2s ease, background-color 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-4xl mb-8">AI Deadlock Detection Tool</h1>
+
+        <div class="input-section">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">Add Process</h2>
+            <form id="processForm" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <label class="flex items-center text-gray-600">
+                        Max R1:
+                        <input type="number" id="max_r1" min="0" required class="ml-2 p-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-blue-500">
+                    </label>
+                    <label class="flex items-center text-gray-600">
+                        Max R2:
+                        <input type="number" id="max_r2" min="0" required class="ml-2 p-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-blue-500">
+                    </label>
+                    <label class="flex items-center text-gray-600">
+                        Max R3:
+                        <input type="number" id="max_r3" min="0" required class="ml-2 p-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-blue-500">
+                    </label>
+                    <label class="flex items-center text-gray-600">
+                        Alloc R1:
+                        <input type="number" id="alloc_r1" min="0" required class="ml-2 p-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-blue-500">
+                    </label>
+                    <label class="flex items-center text-gray-600">
+                        Alloc R2:
+                        <input type="number" id="alloc_r2" min="0" required class="ml-2 p-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-blue-500">
+                    </label>
+                    <label class="flex items-center text-gray-600">
+                        Alloc R3:
+                        <input type="number" id="alloc_r3" min="0" required class="ml-2 p-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-blue-500">
+                    </label>
+                </div>
+                <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">Add Process</button>
+            </form>
+        </div>
+
+        <div class="process-table">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">Allocated Resources</h2>
+            <table class="w-full text-left text-gray-600">
+                <thead>
+                    <tr class="border-b">
+                        <th class="py-2">Process</th>
+                        <th class="py-2">R1</th>
+                        <th class="py-2">R2</th>
+                        <th class="py-2">R3</th>
+                    </tr>
+                </thead>
+                <tbody id="processTableBody"></tbody>
+            </table>
+        </div>
+
+        <div class="status-section">
+            <div class="flex items-center space-x-4 mb-4">
+                <label class="flex items-center text-gray-600">
+                    Select Algorithm:
+                    <select id="algorithm" class="ml-2 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="bankers">Banker's Algorithm</option>
+                        <option value="wfg">Wait-For Graph</option>
+                    </select>
+                </label>
+                <button id="checkDeadlock" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">Check Deadlock</button>
+                <button id="resolveDeadlock" disabled class="bg-gray-400 text-white px-6 py-2 rounded-lg cursor-not-allowed">Resolve Deadlock</button>
+                <button id="reset" class="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700">Reset</button>
+            </div>
+            <p id="status" class="text-lg text-gray-700"></p>
+        </div>
+
+        <div class="graph-container">
+            <div class="graph-section">
+                <h3 class="text-lg font-semibold text-gray-700 mb-2">Current State</h3>
+                <div id="currentGraph" class="graph"></div>
+            </div>
+            <div class="graph-section" id="finalGraphSection" style="display: none;">
+                <h3 class="text-lg font-semibold text-gray-700 mb-2">After Resolution</h3>
+                <div id="finalGraph" class="graph"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('processForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const status = document.getElementById('status');
+
+            // Extract input values
+            const max_r1 = parseInt(document.getElementById('max_r1').value);
+            const max_r2 = parseInt(document.getElementById('max_r2').value);
+            const max_r3 = parseInt(document.getElementById('max_r3').value);
+            const alloc_r1 = parseInt(document.getElementById('alloc_r1').value);
+            const alloc_r2 = parseInt(document.getElementById('alloc_r2').value);
+            const alloc_r3 = parseInt(document.getElementById('alloc_r3').value);
+
+            // Client-side validation
+            if (alloc_r1 > max_r1) {
+                status.textContent = `Error: Allocated R1 (${alloc_r1}) exceeds maximum need R1 (${max_r1})`;
+                status.classList.add('text-red-600');
+                status.classList.remove('text-green-600');
+                return;
+            }
+            if (alloc_r2 > max_r2) {
+                status.textContent = `Error: Allocated R2 (${alloc_r2}) exceeds maximum need R2 (${max_r2})`;
+                status.classList.add('text-red-600');
+                status.classList.remove('text-green-600');
+                return;
+            }
+            if (alloc_r3 > max_r3) {
+                status.textContent = `Error: Allocated R3 (${alloc_r3}) exceeds maximum need R3 (${max_r3})`;
+                status.classList.add('text-red-600');
+                status.classList.remove('text-green-600');
+                return;
+            }
+
+            // Proceed with fetch if validation passes
+            const data = {
+                max_r1: max_r1,
+                max_r2: max_r2,
+                max_r3: max_r3,
+                alloc_r1: alloc_r1,
+                alloc_r2: alloc_r2,
+                alloc_r3: alloc_r3
+            };
+            fetch('/add_process', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw new Error(err.message); });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === "error") {
+                    status.textContent = data.message;
+                    status.classList.add('text-red-600');
+                    status.classList.remove('text-green-600');
+                } else {
+                    updateGraph();
+                    document.getElementById('resolveDeadlock').disabled = true;
+                    document.getElementById('finalGraphSection').style.display = 'none';
+                    document.getElementById('processForm').reset();
+                    updateProcessTable(data.processes);
+                    status.textContent = "Process added successfully";
+                    status.classList.add('text-green-600');
+                    status.classList.remove('text-red-600');
+                }
+            })
+            .catch(error => {
+                status.textContent = error.message || "Error adding process";
+                status.classList.add('text-red-600');
+                status.classList.remove('text-green-600');
+            });
+        });
+
+        document.getElementById('checkDeadlock').addEventListener('click', function() {
+            const algorithm = document.getElementById('algorithm').value;
+            fetch('/check_deadlock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ algorithm: algorithm })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const status = document.getElementById('status');
+                const resolveBtn = document.getElementById('resolveDeadlock');
+                console.log('Response from /check_deadlock:', data);
+
+                if (data.deadlock) {
+                    status.textContent = `Deadlock detected! Suggestion: ${data.suggestion}`;
+                    resolveBtn.disabled = false;
+                    status.classList.add('text-red-600');
+                    status.classList.remove('text-green-600');
+                } else {
+                    const safeSeq = data.safe_sequence || [];
+                    if (safeSeq.length > 0) {
+                        status.textContent = `No deadlock detected. Safe sequence: ${safeSeq.join(', ')}`;
+                    } else {
+                        status.textContent = 'No deadlock detected. No safe sequence available.';
+                    }
+                    resolveBtn.disabled = true;
+                    document.getElementById('finalGraphSection').style.display = 'none';
+                    status.classList.add('text-green-600');
+                    status.classList.remove('text-red-600');
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching deadlock status:', error);
+                document.getElementById('status').textContent = 'Error checking deadlock.';
+            });
+        });
+
+        document.getElementById('resolveDeadlock').addEventListener('click', function() {
+            const algorithm = document.getElementById('algorithm').value;
+            fetch('/resolve_deadlock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ algorithm: algorithm })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('status').textContent = data.message;
+                document.getElementById('resolveDeadlock').disabled = true;
+                const options = {
+                    nodes: { shape: 'box', font: { size: 16 } },
+                    edges: { arrows: 'to', font: { align: 'middle' } },
+                    groups: {
+                        process: { color: { background: '#cce5ff', border: '#0066cc' } },
+                        resource: { color: { background: '#ccffcc', border: '#009900' } }
+                    }
+                };
+                new vis.Network(document.getElementById('currentGraph'), data.initial_graph, options);
+                document.getElementById('finalGraphSection').style.display = 'block';
+                new vis.Network(document.getElementById('finalGraph'), data.final_graph, options);
+                fetch('/get_graph_data')
+                    .then(response => response.json())
+                    .then(graphData => {
+                        const updatedProcesses = graphData.nodes
+                            .filter(node => node.group === 'process')
+                            .map(node => node.id);
+                        const updatedAlloc = updatedProcesses.map(pid => {
+                            const idx = processes.indexOf(pid);
+                            return alloc_matrix[idx];
+                        });
+                        updateProcessTable(updatedProcesses.map((id, idx) => ({ id, alloc: updatedAlloc[idx] })));
+                    });
+            });
+        });
+
+        document.getElementById('reset').addEventListener('click', function() {
+            fetch('/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('status').textContent = data.status;
+                document.getElementById('resolveDeadlock').disabled = true;
+                document.getElementById('finalGraphSection').style.display = 'none';
+                updateGraph();
+                document.getElementById('processForm').reset();
+                updateProcessTable([]);
+            });
+        });
+
+        function updateGraph() {
+            fetch('/get_graph_data')
+            .then(response => response.json())
+            .then(data => {
+                const options = {
+                    nodes: { shape: 'box', font: { size: 16 } },
+                    edges: { arrows: 'to', font: { align: 'middle' } },
+                    groups: {
+                        process: { color: { background: '#cce5ff', border: '#0066cc' } },
+                        resource: { color: { background: '#ccffcc', border: '#009900' } }
+                    }
+                };
+                new vis.Network(document.getElementById('currentGraph'), data, options);
+            });
+        }
+
+        function updateProcessTable(processes) {
+            const tbody = document.getElementById('processTableBody');
+            tbody.innerHTML = '';
+            processes.forEach(proc => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="py-2">${proc.id}</td>
+                    <td class="py-2">${proc.alloc[0]}</td>
+                    <td class="py-2">${proc.alloc[1]}</td>
+                    <td class="py-2">${proc.alloc[2]}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        updateGraph();
+    </script>
+</body>
+</html>
